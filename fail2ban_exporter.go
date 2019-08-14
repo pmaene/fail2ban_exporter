@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"runtime"
+	"runtime/debug"
 	"strings"
 
 	"gopkg.in/alecthomas/kingpin.v2"
@@ -54,8 +55,6 @@ var (
 		[]string{"jail"},
 		nil,
 	)
-
-	version = ""
 )
 
 type Jail struct {
@@ -287,6 +286,15 @@ func NewFail2banExporter() (*Fail2banExporter, error) {
 	return &Fail2banExporter{c}, nil
 }
 
+func getBuildInfo() debug.Module {
+	bi, ok := debug.ReadBuildInfo()
+	if ok {
+		return bi.Main
+	}
+
+	return debug.Module{Version: "unknown"}
+}
+
 func main() {
 	var (
 		listenAddress = kingpin.Flag(
@@ -304,7 +312,7 @@ func main() {
 		fmt.Sprintf(
 			"%s %s compiled with %v on %v/%v",
 			kingpin.CommandLine.Name,
-			version,
+			getBuildInfo().Version,
 			runtime.Version(),
 			runtime.GOOS,
 			runtime.GOARCH,
@@ -313,7 +321,7 @@ func main() {
 	kingpin.HelpFlag.Short('h')
 	kingpin.Parse()
 
-	log.Infoln("Starting", kingpin.CommandLine.Name, version)
+	log.Infoln("Starting", kingpin.CommandLine.Name, getBuildInfo().Version)
 
 	e, err := NewFail2banExporter()
 	if err != nil {
