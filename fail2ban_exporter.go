@@ -58,7 +58,7 @@ var (
 )
 
 type Jail struct {
-	Name            string
+	Name string
 
 	CurrentlyFailed int64
 	TotalFailed     int64
@@ -191,7 +191,7 @@ func (c *Client) GetJails() ([]*Jail, error) {
 		js = append(
 			js,
 			&Jail{
-				Name:            j,
+				Name: j,
 
 				CurrentlyFailed: cf,
 				TotalFailed:     tf,
