@@ -10,9 +10,13 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"syscall"
+
+	"golang.org/x/sync/semaphore"
 
 	"gopkg.in/alecthomas/kingpin.v2"
 
+	"github.com/cenkalti/backoff"
 	"github.com/pmaene/stalecucumber"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -68,22 +72,78 @@ type Jail struct {
 
 type Client struct {
 	conn net.Conn
+	sock string
+	lock *semaphore.Weighted
 }
 
-func (c *Client) Send(cmd []string) (int, error) {
-	b := new(bytes.Buffer)
-	if _, err := stalecucumber.NewPickler(b).Pickle(cmd); err != nil {
-		return 0, err
+func (c *Client) IsConnected() bool {
+	if c.conn == nil {
+		return false
 	}
 
-	return c.conn.Write(
-		append(
-			b.Bytes(),
-			[]byte(CLIENT_CSPROTO_END)...,
-		),
+	if _, err := c.conn.Write(make([]byte, 0)); err != nil {
+		return false
+	}
+
+	return true
+}
+
+func (c *Client) Dial() error {
+	go func() {
+		if !c.lock.TryAcquire(1) {
+			return
+		}
+
+		dial := func() error {
+			conn, err := net.Dial("unix", c.sock)
+			if err != nil {
+				return err
+			}
+
+			c.conn = conn
+			return nil
+		}
+
+		err := backoff.Retry(dial, backoff.NewExponentialBackOff())
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		c.lock.Release(1)
+	}()
+
+	return nil
+}
+func (c *Client) Send(cmd []string) error {
+	if !c.IsConnected() {
+		return c.Dial()
+	}
+
+	b := new(bytes.Buffer)
+	if _, err := stalecucumber.NewPickler(b).Pickle(cmd); err != nil {
+		return err
+	}
+
+	msg := append(
+		b.Bytes(),
+		[]byte(CLIENT_CSPROTO_END)...,
 	)
+
+	if _, err := c.conn.Write(msg); err != nil {
+		if errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) {
+			return c.Dial()
+		}
+
+		return err
+	}
+
+	return nil
 }
 func (c Client) Receive() ([]byte, error) {
+	if !c.IsConnected() {
+		return nil, c.Dial()
+	}
+
 	msg := []byte{}
 
 	r := bufio.NewReader(c.conn)
@@ -91,6 +151,10 @@ func (c Client) Receive() ([]byte, error) {
 	for {
 		_, err := r.Read(b)
 		if err != nil {
+			if errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) {
+				return nil, c.Dial()
+			}
+
 			return nil, err
 		}
 
@@ -102,8 +166,11 @@ func (c Client) Receive() ([]byte, error) {
 
 	return nil, fmt.Errorf("")
 }
-
 func (c *Client) Close() {
+	if !c.IsConnected() {
+		return
+	}
+
 	c.conn.Write(
 		append(
 			[]byte(CLIENT_CSPROTO_CLOSE),
@@ -120,8 +187,7 @@ func (c *Client) GetStatus(jail string) ([]interface{}, error) {
 		cmd = append(cmd, jail)
 	}
 
-	_, err := c.Send(cmd)
-	if err != nil {
+	if err := c.Send(cmd); err != nil {
 		return nil, err
 	}
 
@@ -136,7 +202,21 @@ func (c *Client) GetStatus(jail string) ([]interface{}, error) {
 		return nil, err
 	}
 
-	return d, nil
+	rc, ok := d[0].(int64)
+	if !ok {
+		return nil, errors.New("Could not retrieve the jail status")
+	}
+
+	if rc > 0 {
+		return nil, errors.New("Could not retrieve the jail status")
+	}
+
+	s, ok := d[1].([]interface{})
+	if !ok {
+		return nil, errors.New("Could not retrieve the jail status")
+	}
+
+	return s, nil
 }
 func (c *Client) GetJails() ([]*Jail, error) {
 	s, err := c.GetStatus("")
@@ -144,9 +224,14 @@ func (c *Client) GetJails() ([]*Jail, error) {
 		return nil, err
 	}
 
-	jl, ok := s[1].([]interface{})[1].([]interface{})[1].(string)
+	ss, ok := s[1].([]interface{})
 	if !ok {
-		return nil, errors.New("Could not retrieve the jails list")
+		return nil, errors.New("Could not retrieve the jail list")
+	}
+
+	jl, ok := ss[1].(string)
+	if !ok {
+		return nil, errors.New("Could not retrieve the jail list")
 	}
 
 	js := []*Jail{}
@@ -156,7 +241,15 @@ func (c *Client) GetJails() ([]*Jail, error) {
 			return nil, err
 		}
 
-		cf, ok := s[1].([]interface{})[0].([]interface{})[1].([]interface{})[0].([]interface{})[1].(int64)
+		sf, ok := s[0].([]interface{})[1].([]interface{})
+		if !ok {
+			return nil, fmt.Errorf(
+				"Could not retrieve the filter status for jail \"%s\"",
+				j,
+			)
+		}
+
+		cf, ok := sf[0].([]interface{})[1].(int64)
 		if !ok {
 			return nil, fmt.Errorf(
 				"Could not retrieve the currently failed count for jail \"%s\"",
@@ -164,7 +257,7 @@ func (c *Client) GetJails() ([]*Jail, error) {
 			)
 		}
 
-		tf, ok := s[1].([]interface{})[0].([]interface{})[1].([]interface{})[1].([]interface{})[1].(int64)
+		tf, ok := sf[1].([]interface{})[1].(int64)
 		if !ok {
 			return nil, fmt.Errorf(
 				"Could not retrieve the total failed count for jail \"%s\"",
@@ -172,7 +265,15 @@ func (c *Client) GetJails() ([]*Jail, error) {
 			)
 		}
 
-		cb, ok := s[1].([]interface{})[1].([]interface{})[1].([]interface{})[0].([]interface{})[1].(int64)
+		sa, ok := s[1].([]interface{})[1].([]interface{})
+		if !ok {
+			return nil, fmt.Errorf(
+				"Could not retrieve the filter status for jail \"%s\"",
+				j,
+			)
+		}
+
+		cb, ok := sa[0].([]interface{})[1].(int64)
 		if !ok {
 			return nil, fmt.Errorf(
 				"Could not retrieve the currently banned count for jail \"%s\"",
@@ -180,7 +281,7 @@ func (c *Client) GetJails() ([]*Jail, error) {
 			)
 		}
 
-		tb, ok := s[1].([]interface{})[1].([]interface{})[1].([]interface{})[1].([]interface{})[1].(int64)
+		tb, ok := sa[1].([]interface{})[1].(int64)
 		if !ok {
 			return nil, fmt.Errorf(
 				"Could not retrieve the total banned count for jail \"%s\"",
@@ -205,12 +306,7 @@ func (c *Client) GetJails() ([]*Jail, error) {
 }
 
 func NewClient(sock string) (*Client, error) {
-	c, err := net.Dial("unix", sock)
-	if err != nil {
-		return nil, err
-	}
-
-	return &Client{c}, nil
+	return &Client{sock: sock, lock: semaphore.NewWeighted(1)}, nil
 }
 
 type Fail2banExporter struct {
@@ -282,6 +378,8 @@ func NewFail2banExporter() (*Fail2banExporter, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	c.Dial()
 
 	return &Fail2banExporter{c}, nil
 }
