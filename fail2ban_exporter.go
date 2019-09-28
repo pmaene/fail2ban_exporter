@@ -324,8 +324,8 @@ func (e *Fail2banExporter) Collect(ch chan<- prometheus.Metric) {
 	)
 }
 
-func NewFail2banExporter() (*Fail2banExporter, error) {
-	c, err := NewClient("/var/run/fail2ban/fail2ban.sock")
+func NewFail2banExporter(sock string) (*Fail2banExporter, error) {
+	c, err := NewClient(sock)
 	if err != nil {
 		return nil, err
 	}
@@ -346,6 +346,10 @@ func getBuildInfo() debug.Module {
 
 func main() {
 	var (
+		socketPath = kingpin.Flag(
+			"f2b.socket-path",
+			"Socket path of the Fail2Ban daemon.",
+		).Default("/var/run/fail2ban/fail2ban.sock").String()
 		listenAddress = kingpin.Flag(
 			"web.listen-address",
 			"Address on which to expose metrics and web interface.",
@@ -372,7 +376,7 @@ func main() {
 
 	log.Infoln("Starting", kingpin.CommandLine.Name, getBuildInfo().Version)
 
-	e, err := NewFail2banExporter()
+	e, err := NewFail2banExporter(*socketPath)
 	if err != nil {
 		log.Fatal(err)
 	}
