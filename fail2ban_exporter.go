@@ -10,13 +10,9 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
-	"syscall"
-
-	"golang.org/x/sync/semaphore"
 
 	"gopkg.in/alecthomas/kingpin.v2"
 
-	"github.com/cenkalti/backoff"
 	"github.com/pmaene/stalecucumber"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -73,52 +69,18 @@ type Jail struct {
 type Client struct {
 	conn net.Conn
 	sock string
-	lock *semaphore.Weighted
-}
-
-func (c *Client) IsConnected() bool {
-	if c.conn == nil {
-		return false
-	}
-
-	if _, err := c.conn.Write(make([]byte, 0)); err != nil {
-		return false
-	}
-
-	return true
 }
 
 func (c *Client) Dial() error {
-	go func() {
-		if !c.lock.TryAcquire(1) {
-			return
-		}
+	conn, err := net.Dial("unix", c.sock)
+	if err != nil {
+		return err
+	}
 
-		dial := func() error {
-			conn, err := net.Dial("unix", c.sock)
-			if err != nil {
-				return err
-			}
-
-			c.conn = conn
-			return nil
-		}
-
-		err := backoff.Retry(dial, backoff.NewExponentialBackOff())
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		c.lock.Release(1)
-	}()
-
+	c.conn = conn
 	return nil
 }
 func (c *Client) Send(cmd []string) error {
-	if !c.IsConnected() {
-		return c.Dial()
-	}
-
 	b := new(bytes.Buffer)
 	if _, err := stalecucumber.NewPickler(b).Pickle(cmd); err != nil {
 		return err
@@ -130,20 +92,12 @@ func (c *Client) Send(cmd []string) error {
 	)
 
 	if _, err := c.conn.Write(msg); err != nil {
-		if errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) {
-			return c.Dial()
-		}
-
 		return err
 	}
 
 	return nil
 }
 func (c Client) Receive() ([]byte, error) {
-	if !c.IsConnected() {
-		return nil, c.Dial()
-	}
-
 	msg := []byte{}
 
 	r := bufio.NewReader(c.conn)
@@ -151,10 +105,6 @@ func (c Client) Receive() ([]byte, error) {
 	for {
 		_, err := r.Read(b)
 		if err != nil {
-			if errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) {
-				return nil, c.Dial()
-			}
-
 			return nil, err
 		}
 
@@ -167,10 +117,6 @@ func (c Client) Receive() ([]byte, error) {
 	return nil, fmt.Errorf("")
 }
 func (c *Client) Close() {
-	if !c.IsConnected() {
-		return
-	}
-
 	c.conn.Write(
 		append(
 			[]byte(CLIENT_CSPROTO_CLOSE),
@@ -182,6 +128,11 @@ func (c *Client) Close() {
 }
 
 func (c *Client) GetStatus(jail string) ([]interface{}, error) {
+	if err := c.Dial(); err != nil {
+		return nil, err
+	}
+	defer c.Close()
+
 	cmd := []string{"status"}
 	if jail != "" {
 		cmd = append(cmd, jail)
@@ -306,7 +257,7 @@ func (c *Client) GetJails() ([]*Jail, error) {
 }
 
 func NewClient(sock string) (*Client, error) {
-	return &Client{sock: sock, lock: semaphore.NewWeighted(1)}, nil
+	return &Client{sock: sock}, nil
 }
 
 type Fail2banExporter struct {
