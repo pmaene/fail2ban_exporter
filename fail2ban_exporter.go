@@ -11,18 +11,19 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"gopkg.in/alecthomas/kingpin.v2"
-
 	"github.com/pmaene/stalecucumber"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/log"
+	"gopkg.in/alecthomas/kingpin.v2"
 )
 
 const (
 	CLIENT_CSPROTO_END   = "<F2B_END_COMMAND>"
 	CLIENT_CSPROTO_CLOSE = "<F2B_CLOSE_COMMAND>"
 )
+
+var version = ""
 
 var (
 	fail2banUpDesc = prometheus.NewDesc(
@@ -113,11 +114,9 @@ func (c Client) Receive() ([]byte, error) {
 			return msg[:i], nil
 		}
 	}
-
-	return nil, fmt.Errorf("")
 }
 func (c *Client) Close() {
-	c.conn.Write(
+	_, _ = c.conn.Write(
 		append(
 			[]byte(CLIENT_CSPROTO_CLOSE),
 			[]byte(CLIENT_CSPROTO_END)...,
@@ -127,15 +126,15 @@ func (c *Client) Close() {
 	c.conn.Close()
 }
 
-func (c *Client) GetStatus(jail string) ([]interface{}, error) {
+func (c *Client) GetStatus(j string) ([]interface{}, error) {
 	if err := c.Dial(); err != nil {
 		return nil, err
 	}
 	defer c.Close()
 
 	cmd := []string{"status"}
-	if jail != "" {
-		cmd = append(cmd, jail)
+	if j != "" {
+		cmd = append(cmd, j)
 	}
 
 	if err := c.Send(cmd); err != nil {
@@ -169,7 +168,13 @@ func (c *Client) GetStatus(jail string) ([]interface{}, error) {
 
 	return s, nil
 }
+
 func (c *Client) GetJails() ([]*Jail, error) {
+	if err := c.Dial(); err != nil {
+		return nil, err
+	}
+	defer c.Close()
+
 	s, err := c.GetStatus("")
 	if err != nil {
 		return nil, err
@@ -194,50 +199,32 @@ func (c *Client) GetJails() ([]*Jail, error) {
 
 		sf, ok := s[0].([]interface{})[1].([]interface{})
 		if !ok {
-			return nil, fmt.Errorf(
-				"Could not retrieve the filter status for jail \"%s\"",
-				j,
-			)
+			return nil, fmt.Errorf("Could not retrieve the filter status for jail \"%s\"", j)
 		}
 
 		cf, ok := sf[0].([]interface{})[1].(int64)
 		if !ok {
-			return nil, fmt.Errorf(
-				"Could not retrieve the currently failed count for jail \"%s\"",
-				j,
-			)
+			return nil, fmt.Errorf("Could not retrieve the currently failed count for jail \"%s\"", j)
 		}
 
 		tf, ok := sf[1].([]interface{})[1].(int64)
 		if !ok {
-			return nil, fmt.Errorf(
-				"Could not retrieve the total failed count for jail \"%s\"",
-				j,
-			)
+			return nil, fmt.Errorf("Could not retrieve the total failed count for jail \"%s\"", j)
 		}
 
 		sa, ok := s[1].([]interface{})[1].([]interface{})
 		if !ok {
-			return nil, fmt.Errorf(
-				"Could not retrieve the filter status for jail \"%s\"",
-				j,
-			)
+			return nil, fmt.Errorf("Could not retrieve the filter status for jail \"%s\"", j)
 		}
 
 		cb, ok := sa[0].([]interface{})[1].(int64)
 		if !ok {
-			return nil, fmt.Errorf(
-				"Could not retrieve the currently banned count for jail \"%s\"",
-				j,
-			)
+			return nil, fmt.Errorf("Could not retrieve the currently banned count for jail \"%s\"", j)
 		}
 
 		tb, ok := sa[1].([]interface{})[1].(int64)
 		if !ok {
-			return nil, fmt.Errorf(
-				"Could not retrieve the total banned count for jail \"%s\"",
-				j,
-			)
+			return nil, fmt.Errorf("Could not retrieve the total banned count for jail \"%s\"", j)
 		}
 
 		js = append(
@@ -256,8 +243,10 @@ func (c *Client) GetJails() ([]*Jail, error) {
 	return js, nil
 }
 
-func NewClient(sock string) (*Client, error) {
-	return &Client{sock: sock}, nil
+func NewClient(s string) *Client {
+	return &Client{
+		sock: s,
+	}
 }
 
 type Fail2banExporter struct {
@@ -275,6 +264,7 @@ func (e *Fail2banExporter) Describe(ch chan<- *prometheus.Desc) {
 	ch <- fail2banBannedCurrentDesc
 	ch <- fail2banBannedTotalDesc
 }
+
 func (e *Fail2banExporter) Collect(ch chan<- prometheus.Metric) {
 	js, err := e.client.GetJails()
 	if err != nil {
@@ -324,24 +314,34 @@ func (e *Fail2banExporter) Collect(ch chan<- prometheus.Metric) {
 	)
 }
 
-func NewFail2banExporter(sock string) (*Fail2banExporter, error) {
-	c, err := NewClient(sock)
-	if err != nil {
-		return nil, err
+func NewFail2banExporter(s string) *Fail2banExporter {
+	return &Fail2banExporter{
+		client: NewClient(s),
 	}
-
-	c.Dial()
-
-	return &Fail2banExporter{c}, nil
 }
 
 func getBuildInfo() debug.Module {
 	bi, ok := debug.ReadBuildInfo()
 	if ok {
+		if version != "" {
+			return debug.Module{
+				Path:    bi.Main.Path,
+				Version: version,
+				Sum:     bi.Main.Sum,
+				Replace: bi.Main.Replace,
+			}
+		}
+
 		return bi.Main
 	}
 
-	return debug.Module{Version: "unknown"}
+	return debug.Module{}
+}
+
+func init() {
+	if !strings.HasPrefix(version, "v") {
+		version = "v" + version
+	}
 }
 
 func main() {
@@ -376,17 +376,14 @@ func main() {
 
 	log.Infoln("Starting", kingpin.CommandLine.Name, getBuildInfo().Version)
 
-	e, err := NewFail2banExporter(*socketPath)
-	if err != nil {
-		log.Fatal(err)
-	}
+	e := NewFail2banExporter(*socketPath)
 	defer e.Close()
 
 	prometheus.MustRegister(e)
 
 	http.Handle(*metricsPath, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write(
+		_, err := w.Write(
 			[]byte(
 				`<html>
 				<head><title>Fail2ban Exporter</title></head>
@@ -397,6 +394,10 @@ func main() {
 				</html>`,
 			),
 		)
+
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 	})
 
 	log.Infoln("Listening on", *listenAddress)
