@@ -6,6 +6,8 @@ on:
     branches:
       - master
 
+    tags: []
+
 jobs:
   lint:
     name: Lint
