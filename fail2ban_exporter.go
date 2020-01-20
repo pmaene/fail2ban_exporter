@@ -100,7 +100,7 @@ func (c *Client) Send(cmd []string) error {
 	return nil
 }
 func (c Client) Receive() ([]byte, error) {
-	msg := []byte{}
+	var msg []byte
 
 	r := bufio.NewReader(c.conn)
 	b := make([]byte, 512)
