@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"github.com/pmaene/stalecucumber"
 	"github.com/prometheus/client_golang/prometheus"
@@ -74,7 +75,7 @@ type Client struct {
 }
 
 func (c *Client) Dial() error {
-	conn, err := net.Dial("unix", c.sock)
+	conn, err := net.DialTimeout("unix", c.sock, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -93,6 +94,10 @@ func (c *Client) Send(cmd []string) error {
 		[]byte(CLIENT_CSPROTO_END)...,
 	)
 
+	if err := c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return err
+	}
+
 	if _, err := c.conn.Write(msg); err != nil {
 		return err
 	}
@@ -101,6 +106,10 @@ func (c *Client) Send(cmd []string) error {
 }
 func (c Client) Receive() ([]byte, error) {
 	var msg []byte
+
+	if err := c.conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return nil, err
+	}
 
 	r := bufio.NewReader(c.conn)
 	b := make([]byte, 512)
