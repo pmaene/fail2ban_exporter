@@ -8,7 +8,7 @@ require (
 	github.com/konsorten/go-windows-terminal-sequences v1.0.2 // indirect
 	github.com/pmaene/stalecucumber v0.0.0-20190726155832-e8f8dc3e556b
 	github.com/prometheus/client_golang v1.3.0
-	github.com/prometheus/common v0.8.0
-	golang.org/x/sys v0.0.0-20200116001909-b77594299b42 // indirect
+	github.com/prometheus/common v0.9.1
+	golang.org/x/sys v0.0.0-20200121082415-34d275377bf9 // indirect
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6
 )
