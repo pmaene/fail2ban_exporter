@@ -70,12 +70,14 @@ type Jail struct {
 }
 
 type Client struct {
+	Address string
+	Timeout time.Duration
+
 	conn net.Conn
-	sock string
 }
 
 func (c *Client) Dial() error {
-	conn, err := net.DialTimeout("unix", c.sock, 5*time.Second)
+	conn, err := net.DialTimeout("unix", c.Address, c.Timeout)
 	if err != nil {
 		return err
 	}
@@ -94,7 +96,7 @@ func (c *Client) Send(cmd []string) error {
 		[]byte(CLIENT_CSPROTO_END)...,
 	)
 
-	if err := c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+	if err := c.conn.SetWriteDeadline(time.Now().Add(c.Timeout)); err != nil {
 		return err
 	}
 
@@ -107,7 +109,7 @@ func (c *Client) Send(cmd []string) error {
 func (c Client) Receive() ([]byte, error) {
 	var msg []byte
 
-	if err := c.conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+	if err := c.conn.SetReadDeadline(time.Now().Add(c.Timeout)); err != nil {
 		return nil, err
 	}
 
@@ -253,9 +255,10 @@ func (c *Client) GetJails() ([]*Jail, error) {
 	return js, nil
 }
 
-func NewClient(s string) *Client {
+func NewClient(a string, t time.Duration) *Client {
 	return &Client{
-		sock: s,
+		Address: a,
+		Timeout: t,
 	}
 }
 
@@ -324,9 +327,9 @@ func (e *Fail2banExporter) Collect(ch chan<- prometheus.Metric) {
 	)
 }
 
-func NewFail2banExporter(s string) *Fail2banExporter {
+func NewFail2banExporter(a string, t time.Duration) *Fail2banExporter {
 	return &Fail2banExporter{
-		client: NewClient(s),
+		client: NewClient(a, t),
 	}
 }
 
@@ -360,6 +363,10 @@ func main() {
 			"f2b.socket-path",
 			"Socket path of the Fail2Ban daemon.",
 		).Default("/var/run/fail2ban/fail2ban.sock").String()
+		timeout = kingpin.Flag(
+			"f2b.timeout",
+			"Timeout for connections to the Fail2Ban daemon.",
+		).Default("5s").Duration()
 		listenAddress = kingpin.Flag(
 			"web.listen-address",
 			"Address on which to expose metrics and web interface.",
@@ -386,7 +393,7 @@ func main() {
 
 	log.Infoln("Starting", kingpin.CommandLine.Name, getBuildInfo().Version)
 
-	e := NewFail2banExporter(*socketPath)
+	e := NewFail2banExporter(*socketPath, *timeout)
 	defer e.Close()
 
 	prometheus.MustRegister(e)
