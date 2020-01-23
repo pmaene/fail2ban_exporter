@@ -287,6 +287,7 @@ func (e *Fail2banExporter) Collect(ch chan<- prometheus.Metric) {
 			0.0,
 		)
 
+		log.Errorln(err)
 		return
 	}
 
