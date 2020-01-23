@@ -114,7 +114,7 @@ func (c Client) Receive() ([]byte, error) {
 	}
 
 	r := bufio.NewReader(c.conn)
-	b := make([]byte, 512)
+	b := make([]byte, 1024)
 	for {
 		_, err := r.Read(b)
 		if err != nil {
