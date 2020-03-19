@@ -9,6 +9,5 @@ require (
 	github.com/pmaene/stalecucumber v0.0.0-20190726155832-e8f8dc3e556b
 	github.com/prometheus/client_golang v1.5.1
 	github.com/prometheus/common v0.9.1
-	golang.org/x/sys v0.0.0-20200121082415-34d275377bf9 // indirect
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6
 )
