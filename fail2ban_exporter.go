@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pmaene/stalecucumber"
+	ogórek "github.com/kisielk/og-rek"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/log"
@@ -87,7 +87,7 @@ func (c *Client) Dial() error {
 }
 func (c *Client) Send(cmd []string) error {
 	b := new(bytes.Buffer)
-	if _, err := stalecucumber.NewPickler(b).Pickle(cmd); err != nil {
+	if err := ogórek.NewEncoder(b).Encode(cmd); err != nil {
 		return err
 	}
 
@@ -158,13 +158,17 @@ func (c *Client) GetStatus(j string) ([]interface{}, error) {
 		return nil, err
 	}
 
-	r := bytes.NewReader(msg)
-	d, err := stalecucumber.ListOrTuple(stalecucumber.Unpickle(r))
+	d, err := ogórek.NewDecoder(bytes.NewReader(msg)).Decode()
 	if err != nil {
 		return nil, err
 	}
 
-	rc, ok := d[0].(int64)
+	t, ok := d.(ogórek.Tuple)
+	if !ok {
+		return nil, errors.New("Could not retrieve the jail status")
+	}
+
+	rc, ok := t[0].(int64)
 	if !ok {
 		return nil, errors.New("Could not retrieve the jail status")
 	}
@@ -173,7 +177,7 @@ func (c *Client) GetStatus(j string) ([]interface{}, error) {
 		return nil, errors.New("Could not retrieve the jail status")
 	}
 
-	s, ok := d[1].([]interface{})
+	s, ok := t[1].([]interface{})
 	if !ok {
 		return nil, errors.New("Could not retrieve the jail status")
 	}
@@ -192,7 +196,7 @@ func (c *Client) GetJails() ([]*Jail, error) {
 		return nil, err
 	}
 
-	ss, ok := s[1].([]interface{})
+	ss, ok := s[1].(ogórek.Tuple)
 	if !ok {
 		return nil, errors.New("Could not retrieve the jail list")
 	}
@@ -209,32 +213,32 @@ func (c *Client) GetJails() ([]*Jail, error) {
 			return nil, err
 		}
 
-		sf, ok := s[0].([]interface{})[1].([]interface{})
+		sf, ok := s[0].(ogórek.Tuple)[1].([]interface{})
 		if !ok {
 			return nil, fmt.Errorf("Could not retrieve the filter status for jail \"%s\"", j)
 		}
 
-		cf, ok := sf[0].([]interface{})[1].(int64)
+		cf, ok := sf[0].(ogórek.Tuple)[1].(int64)
 		if !ok {
 			return nil, fmt.Errorf("Could not retrieve the currently failed count for jail \"%s\"", j)
 		}
 
-		tf, ok := sf[1].([]interface{})[1].(int64)
+		tf, ok := sf[1].(ogórek.Tuple)[1].(int64)
 		if !ok {
 			return nil, fmt.Errorf("Could not retrieve the total failed count for jail \"%s\"", j)
 		}
 
-		sa, ok := s[1].([]interface{})[1].([]interface{})
+		sa, ok := s[1].(ogórek.Tuple)[1].([]interface{})
 		if !ok {
 			return nil, fmt.Errorf("Could not retrieve the filter status for jail \"%s\"", j)
 		}
 
-		cb, ok := sa[0].([]interface{})[1].(int64)
+		cb, ok := sa[0].(ogórek.Tuple)[1].(int64)
 		if !ok {
 			return nil, fmt.Errorf("Could not retrieve the currently banned count for jail \"%s\"", j)
 		}
 
-		tb, ok := sa[1].([]interface{})[1].(int64)
+		tb, ok := sa[1].(ogórek.Tuple)[1].(int64)
 		if !ok {
 			return nil, fmt.Errorf("Could not retrieve the total banned count for jail \"%s\"", j)
 		}
