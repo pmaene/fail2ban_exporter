@@ -14,9 +14,6 @@ builds:
       - 6
       - 7
 
-    ldflags:
-      - -s -w -X main.version={{ .Version }}
-
 archives:
   - name_template: "{{ .ProjectName }}-{{ .Version }}.{{ .Os }}-{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
     files:
