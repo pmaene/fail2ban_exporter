@@ -22,10 +22,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build:
-    if: startsWith(github.ref, 'refs/tags/v')
     name: Build
     needs: lint
     runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Log in to Docker Hub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
@@ -45,3 +45,30 @@ jobs:
           args: release --rm-dist
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  merge:
+    name: Merge
+    needs: lint
+    runs-on: ubuntu-latest
+
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == false && (
+        github.event.action == 'opened' ||
+        github.event.action == 'reopened' ||
+        github.event.action == 'synchronize'
+      ) &&
+      github.actor == 'dependabot[bot]'
+
+    steps:
+      - name: Merge Pull Request
+        uses: actions/github-script@v2.0.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.pulls.merge({
+              merge_method: "rebase",
+              owner: context.repo.owner,
+              pull_number: context.payload.pull_request.number,
+              repo: context.repo.repo,
+            })
