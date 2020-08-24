@@ -62,7 +62,7 @@ jobs:
 
     steps:
       - name: Merge Pull Request
-        uses: actions/github-script@v2.0.1
+        uses: actions/github-script@v3
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
