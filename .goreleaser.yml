@@ -26,8 +26,3 @@ release:
   github:
     owner: pmaene
     name: fail2ban_exporter
-
-dockers:
-  - image_templates:
-      - pmaene/fail2ban_exporter:latest
-      - pmaene/fail2ban_exporter:v{{ .Version }}
