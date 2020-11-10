@@ -8,3 +8,5 @@ require (
 	github.com/prometheus/common v0.15.0
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6
 )
+
+replace github.com/kisielk/og-rek => github.com/pmaene/og-rek v1.1.1-0.20201110172418-8cecc80af080
