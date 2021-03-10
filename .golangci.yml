@@ -18,6 +18,6 @@ gocritic:
   enabled-checks:
     - typeUnparen
 
-enabled-tags:
-  - performance
-  - style
+  enabled-tags:
+    - performance
+    - style
