@@ -3,13 +3,13 @@ run:
 
 linters:
   enable:
+    - exportloopref
     - gocritic
     - gofmt
     - gosec
     - lll
     - misspell
     - nakedret
-    - scopelint
     - unconvert
     - unparam
 
