@@ -6,7 +6,6 @@ linters:
     - gocritic
     - gofmt
     - gosec
-    - interfacer
     - lll
     - misspell
     - nakedret
