@@ -23,5 +23,3 @@ require (
 	golang.org/x/sys v0.0.0-20210603081109-ebe580a85c40 // indirect
 	google.golang.org/protobuf v1.26.0-rc.1 // indirect
 )
-
-replace github.com/kisielk/og-rek => github.com/pmaene/og-rek v1.1.1-0.20201110172418-8cecc80af080
